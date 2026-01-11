@@ -1,45 +1,126 @@
+```markdown
 # Ralph
 
-![Ralph](ralph.webp)
+Ralph is an autonomous AI agent loop that runs **Amp** on your codebase until every item in your Product Requirements Document (PRD) is complete [web:28][web:36]. Each iteration launches a fresh Amp instance with a clean context, while long-term memory is stored in your git history, `progress.txt`, and `prd.json` [web:33][web:36]. This pattern is inspired by Geoffrey Huntley’s Ralph workflow for continuous, agent-driven software development [web:32][web:33][web:36].
 
-Ralph is an autonomous AI agent loop that runs [Amp](https://ampcode.com) repeatedly until all PRD items are complete. Each iteration is a fresh Amp instance with clean context. Memory persists via git history, `progress.txt`, and `prd.json`.
+---
 
-Based on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/).
+## Why Ralph?
 
-[Read my in-depth article on how I use Ralph](https://x.com/ryancarson/status/2008548371712135632)
+Traditional coding agents are powerful for one-off tasks but struggle with:
+- Large features that exceed a single context window
+- Maintaining consistency across many small changes
+- Capturing and reusing “tribal knowledge” about a codebase
+
+Ralph turns Amp into a **persistent teammate** that:
+- Breaks work into small, shippable stories
+- Iterates until all stories pass their acceptance criteria
+- Persists learnings so future runs (and humans) get smarter over time [web:33][web:36].
+
+---
+
+## How It Works (High Level)
+
+Ralph runs in a loop:
+
+1. **Reads the PRD** from `prd.json`  
+2. **Chooses the highest‑priority story** where `passes: false`  
+3. **Spawns a fresh Amp instance** with `prompt.md` as the system instructions  
+4. **Implements exactly one story** (code changes, tests, docs)  
+5. **Runs quality checks** (typecheck, tests, and any custom commands)  
+6. **Commits if green** and updates `prd.json` to `passes: true`  
+7. **Appends learnings** to `progress.txt` and updates `AGENTS.md`  
+8. Repeats until all stories pass or `max_iterations` is reached [web:33][web:36].
+
+This loop is orchestrated by `ralph.sh`, a simple Bash script that acts as the control plane for your agents [web:36].
+
+---
+
+## Key Concepts
+
+### Fresh Context, Persistent Memory
+
+Every iteration is a brand-new Amp process with a clean context window. The only cross-iteration memory comes from:
+- **Git history** – the ground truth of code changes
+- **`prd.json`** – which stories exist and which are done
+- **`progress.txt`** – append-only log of what each iteration learned
+- **`AGENTS.md`** – durable hints and patterns that Amp reads on future runs [web:33][web:36].
+
+This keeps each run focused and prevents context bloat, while still accumulating durable knowledge over time.
+
+### Right-Sized Stories
+
+Ralph works best when each PRD item fits into a single agent context. Stories should be narrow, such as:
+- “Add a new column and migration”
+- “Add a filter dropdown to the users list”
+- “Update the billing API to include field X”
+
+Broad tasks like “build the entire dashboard” or “implement authentication” should be split into smaller stories before running Ralph [web:33][web:36].
+
+### Feedback Loops
+
+Ralph assumes your project has strong feedback signals:
+- Typechecking for fast failure
+- Tests for behavioral correctness
+- CI that must stay green
+
+These loops prevent broken changes from compounding over many autonomous iterations [web:35][web:36].
+
+---
+
+## Files and Layout
+
+| File / Folder       | Purpose                                                                 |
+|---------------------|-------------------------------------------------------------------------|
+| `ralph.sh`          | Main loop script that orchestrates Amp iterations                      |
+| `prompt.md`         | System prompt given to each Amp instance                               |
+| `prd.json`          | Machine-readable PRD with `userStories` and `passes` flags             |
+| `prd.json.example`  | Sample PRD to copy and adapt                                           |
+| `progress.txt`      | Append-only log of iteration learnings and outcomes                    |
+| `skills/prd/`       | Amp skill for generating PRDs from natural language                    |
+| `skills/ralph/`     | Amp skill for converting PRDs to `prd.json`                            |
+| `flowchart/`        | Interactive visualization of the Ralph loop and data flow             | [web:33][web:36]
+
+---
 
 ## Prerequisites
 
-- [Amp CLI](https://ampcode.com) installed and authenticated
-- `jq` installed (`brew install jq` on macOS)
-- A git repository for your project
+- **Amp CLI** installed and authenticated (`@sourcegraph/amp`) [web:34].
+- **`jq`** installed for JSON processing.
+- A **git repository** for your project (Ralph relies heavily on git history).
+- Optional but recommended:
+  - CI pipeline that runs tests and typechecks
+  - `AGENTS.md` files in relevant directories for agent-readable context [web:34][web:36].
+
+---
 
 ## Setup
 
-### Option 1: Copy to your project
+### Option 1: Add Ralph to a Single Project
 
-Copy the ralph files into your project:
+From your project root:
 
 ```bash
-# From your project root
 mkdir -p scripts/ralph
 cp /path/to/ralph/ralph.sh scripts/ralph/
 cp /path/to/ralph/prompt.md scripts/ralph/
 chmod +x scripts/ralph/ralph.sh
 ```
 
-### Option 2: Install skills globally
+Place `prd.json` and `progress.txt` at the project root (or wherever your `ralph.sh` expects them).
 
-Copy the skills to your Amp config for use across all projects:
+### Option 2: Install Skills Globally
+
+To make the PRD and Ralph skills available across all Amp projects:
 
 ```bash
 cp -r skills/prd ~/.config/amp/skills/
 cp -r skills/ralph ~/.config/amp/skills/
 ```
 
-### Configure Amp auto-handoff (recommended)
+### Recommended: Amp Auto-Handoff
 
-Add to `~/.config/amp/settings.json`:
+Enable automatic handoff in `~/.config/amp/settings.json`:
 
 ```json
 {
@@ -47,29 +128,27 @@ Add to `~/.config/amp/settings.json`:
 }
 ```
 
-This enables automatic handoff when context fills up, allowing Ralph to handle large stories that exceed a single context window.
+This lets Amp chain itself when context fills up, which is useful for larger stories [web:30][web:34].
+
+---
 
 ## Workflow
 
 ### 1. Create a PRD
 
-Use the PRD skill to generate a detailed requirements document:
+Use the PRD skill inside Amp:
 
-```
-Load the prd skill and create a PRD for [your feature description]
-```
+> Load the prd skill and create a PRD for \[your feature description\]
 
-Answer the clarifying questions. The skill saves output to `tasks/prd-[feature-name].md`.
+Answer clarifying questions. The skill writes a markdown PRD to `tasks/prd-[feature-name].md` [web:33][web:36].
 
-### 2. Convert PRD to Ralph format
+### 2. Convert the PRD to JSON
 
-Use the Ralph skill to convert the markdown PRD to JSON:
+Turn the markdown PRD into `prd.json`:
 
-```
-Load the ralph skill and convert tasks/prd-[feature-name].md to prd.json
-```
+> Load the ralph skill and convert `tasks/prd-[feature-name].md` to `prd.json`
 
-This creates `prd.json` with user stories structured for autonomous execution.
+This produces machine-readable user stories with `id`, `title`, `priority`, and `passes` fields [web:33][web:36].
 
 ### 3. Run Ralph
 
@@ -77,38 +156,25 @@ This creates `prd.json` with user stories structured for autonomous execution.
 ./scripts/ralph/ralph.sh [max_iterations]
 ```
 
-Default is 10 iterations.
+- Default: 10 iterations
+- Ralph will branch, implement, test, commit, and update `prd.json` and `progress.txt` on each pass [web:33][web:36].
 
-Ralph will:
-1. Create a feature branch (from PRD `branchName`)
-2. Pick the highest priority story where `passes: false`
-3. Implement that single story
-4. Run quality checks (typecheck, tests)
-5. Commit if checks pass
-6. Update `prd.json` to mark story as `passes: true`
-7. Append learnings to `progress.txt`
-8. Repeat until all stories pass or max iterations reached
+When every story has `passes: true`, Ralph prints:
 
-## Key Files
+```txt
+<promise>COMPLETE</promise>
+```
 
-| File | Purpose |
-|------|---------|
-| `ralph.sh` | The bash loop that spawns fresh Amp instances |
-| `prompt.md` | Instructions given to each Amp instance |
-| `prd.json` | User stories with `passes` status (the task list) |
-| `prd.json.example` | Example PRD format for reference |
-| `progress.txt` | Append-only learnings for future iterations |
-| `skills/prd/` | Skill for generating PRDs |
-| `skills/ralph/` | Skill for converting PRDs to JSON |
-| `flowchart/` | Interactive visualization of how Ralph works |
+and exits [web:33][web:36].
+
+---
 
 ## Flowchart
 
-[![Ralph Flowchart](ralph-flowchart.png)](https://snarktank.github.io/ralph/)
+Ralph includes an interactive flowchart that shows the full loop:
 
-**[View Interactive Flowchart](https://snarktank.github.io/ralph/)** - Click through to see each step with animations.
-
-The `flowchart/` directory contains the source code. To run locally:
+- **Online**: [Interactive Flowchart](https://snarktank.github.io/ralph/)  
+- **Local**:
 
 ```bash
 cd flowchart
@@ -116,81 +182,104 @@ npm install
 npm run dev
 ```
 
-## Critical Concepts
+This visualization walks through each step with animations and is useful when onboarding teammates or explaining Ralph to stakeholders [web:36].
 
-### Each Iteration = Fresh Context
+---
 
-Each iteration spawns a **new Amp instance** with clean context. The only memory between iterations is:
-- Git history (commits from previous iterations)
-- `progress.txt` (learnings and context)
-- `prd.json` (which stories are done)
+## Best Practices
 
-### Small Tasks
+### Keep Stories Small and Independent
 
-Each PRD item should be small enough to complete in one context window. If a task is too big, the LLM runs out of context before finishing and produces poor code.
+- Aim for tasks that fit comfortably inside one context window.
+- Prefer vertical slices that go “end-to-end” for one behavior over horizontal “do everything in the backend” spans [web:33][web:35].
 
-Right-sized stories:
-- Add a database column and migration
-- Add a UI component to an existing page
-- Update a server action with new logic
-- Add a filter dropdown to a list
+### Invest in AGENTS.md
 
-Too big (split these):
-- "Build the entire dashboard"
-- "Add authentication"
-- "Refactor the API"
+After each iteration, Ralph appends learnings to the relevant `AGENTS.md` files. Amp reads these automatically, so:
+- Document patterns (“use X library for Y”)
+- Call out gotchas (“remember to update Z when changing W”)
+- Capture domain context (“billing lives in `apps/billing` and uses feature flags”) [web:33][web:36].
 
-### AGENTS.md Updates Are Critical
+### Maintain Strong Feedback Loops
 
-After each iteration, Ralph updates the relevant `AGENTS.md` files with learnings. This is key because Amp automatically reads these files, so future iterations (and future human developers) benefit from discovered patterns, gotchas, and conventions.
+- Keep tests fast and reliable.
+- Fail early on type errors and lint issues.
+- Treat a red CI build as a blocker before running more iterations [web:35][web:36].
 
-Examples of what to add to AGENTS.md:
-- Patterns discovered ("this codebase uses X for Y")
-- Gotchas ("do not forget to update Z when changing W")
-- Useful context ("the settings panel is in component X")
+### Browser Verification for UI Work
 
-### Feedback Loops
+For frontend stories, include acceptance criteria like:
 
-Ralph only works if there are feedback loops:
-- Typecheck catches type errors
-- Tests verify behavior
-- CI must stay green (broken code compounds across iterations)
+> Verify in browser using dev-browser skill.
 
-### Browser Verification for UI Stories
+Ralph will then use Amp’s browser tools to open the app, navigate, and confirm behavior for UI changes [web:30][web:33].
 
-Frontend stories must include "Verify in browser using dev-browser skill" in acceptance criteria. Ralph will use the dev-browser skill to navigate to the page, interact with the UI, and confirm changes work.
+---
 
-### Stop Condition
+## Debugging & Introspection
 
-When all stories have `passes: true`, Ralph outputs `<promise>COMPLETE</promise>` and the loop exits.
-
-## Debugging
-
-Check current state:
+Quick ways to inspect Ralph’s current state:
 
 ```bash
-# See which stories are done
+# Which stories are done?
 cat prd.json | jq '.userStories[] | {id, title, passes}'
 
-# See learnings from previous iterations
+# What has Ralph learned so far?
 cat progress.txt
 
-# Check git history
+# Recent commits from Ralph
 git log --oneline -10
 ```
 
-## Customizing prompt.md
+If Ralph is “stuck”:
+- Check for failing tests or type errors.
+- Confirm that stories are small enough.
+- Tighten or clarify acceptance criteria in `prd.json` [web:33][web:36].
 
-Edit `prompt.md` to customize Ralph's behavior for your project:
-- Add project-specific quality check commands
-- Include codebase conventions
-- Add common gotchas for your stack
+---
 
-## Archiving
+## Customization
 
-Ralph automatically archives previous runs when you start a new feature (different `branchName`). Archives are saved to `archive/YYYY-MM-DD-feature-name/`.
+You can adapt Ralph to your stack by editing `prompt.md`:
+
+- Add project-specific quality gates (e.g., `pnpm lint`, `cargo test`).
+- Specify directory structure, naming conventions, and patterns.
+- Include links or short summaries of critical docs (design system, domain models, etc.) [web:33][web:36].
+
+You can also extend `ralph.sh` to:
+- Run different commands per-language or per-package.
+- Integrate with your CI or deployment scripts.
+- Archive logs or artifacts for observability.
+
+---
+
+## Archiving Runs
+
+When a new feature (with a different `branchName`) starts, Ralph automatically archives previous runs into:
+
+```txt
+archive/YYYY-MM-DD-feature-name/
+```
+
+This keeps `prd.json` and `progress.txt` focused on the current feature while preserving past runs for audit and analysis [web:33][web:36].
+
+---
 
 ## References
 
-- [Geoffrey Huntley's Ralph article](https://ghuntley.com/ralph/)
-- [Amp documentation](https://ampcode.com/manual)
+- [Geoffrey Huntley’s Ralph pattern](https://ghuntley.com/ralph/) [web:32]  
+- [Amp CLI manual](https://ampcode.com/manual) [web:30][web:34]  
+- [Original Ralph repo](https://github.com/snarktank/ralph) [web:36]  
+- Background: autonomous coding agents and continuous development loops [web:28][web:35].
+```
+
+[1](https://ampcode.com)
+[2](https://sourcegraph.com/amp)
+[3](https://www.siddharthbharath.com/amp-code-guide/)
+[4](https://ampcode.com/manual)
+[5](https://zoltanbourne.substack.com/p/early-preview-of-amp-the-new-ai-coding)
+[6](https://ghuntley.com/ralph/)
+[7](https://docsmith.aigne.io/discuss/docs/ralph/en)
+[8](https://www.npmjs.com/package/@sourcegraph/amp)
+[9](https://ai-daily.news/articles/ralph-the-autonomous-coding-agent-that-never-stops)
+[10](https://github.com/snarktank/ralph)
